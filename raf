@@ -1,0 +1,331 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define FILE_NAME "vs.dat"
+#define MAX_BEDS 50
+#define EXPORT_FILE "table_vs.txt"
+
+typedef struct {
+    int bed_no; 
+    char id[12];
+    char date[12];
+    char time[7];
+    float temp; 
+    float systolic; 
+    float diastolic; 
+} Patient;
+
+
+void clearBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+int readString(char* buffer, int size, const char* prompt) {
+    printf("%s", prompt);
+    if (fgets(buffer, size, stdin) == NULL) return 0;
+
+    if (buffer[0] == '\n') {
+        printf("[ERROR] Input cannot be empty!\n");
+        return 0;
+    }
+    if (strchr(buffer, '\n') == NULL) {
+        printf("[ERROR] Input too long!\n");
+        clearBuffer();
+        return 0;
+    }
+
+    buffer[strcspn(buffer, "\n")] = '\0';
+    if (strchr(buffer, ' ') != NULL) {
+        printf("[ERROR] No spaces allowed!\n");
+        return 0;
+    }
+    return 1;
+}
+int isValidID(const char* id) {
+    if (strlen(id) != 10) return 0;
+    if (!isalpha((unsigned char)id[0])) return 0;
+    if (!isupper((unsigned char)id[0])) return 0;
+    if (id[0] == 'L' || id[0] == 'R' || id[0] == 'S') return 0;
+    for (int i = 1; i < 10; i++) {
+        if (!isdigit((unsigned char)id[i])) return 0;
+    }
+    return 1;
+}
+
+int isValidDate(const char* date) {
+    if (strlen(date) != 10) return 0;
+    if (date[4] != '/' || date[7] != '/') return 0;
+
+    for (int i = 0; i < 10; i++) {
+        if (i == 4 || i == 7) continue;
+        if (!isdigit((unsigned char)date[i])) return 0;
+    }
+    int year, month, day;
+    sscanf(date, "%4d/%2d/%2d", &year, &month, &day);
+
+    if (month < 1 || month > 12) return 0;
+    if (day < 1 || day > 31) return 0;
+
+    if (year > 2026) return 0;
+    if (year == 2026 && month > 4) return 0;
+    if (year == 2026 && month == 4 && day > 28) return 0;
+
+    return 1;
+}
+
+int formatTime(char* time_str) {
+    if (strchr(time_str, ':') == NULL) return 0;
+    int h, m;
+    if (sscanf(time_str, "%d:%d", &h, &m) != 2) return 0;
+    if (h < 0 || h > 23 || m < 0 || m > 59) return 0;
+    sprintf(time_str, "%02d:%02d", h, m);
+    return 1;
+}
+
+
+void initFileIfNeeded() {
+    FILE* fp = fopen(FILE_NAME, "rb");
+    if (fp == NULL) {
+        printf("--- Creating new database '%s' with %d empty beds ---\n", FILE_NAME, MAX_BEDS);
+        fp = fopen(FILE_NAME, "wb");
+        const Patient BLANK = { 0, "", "", "", 0.0, 0.0, 0.0 };
+        for (int i = 0; i < MAX_BEDS; i++) {
+            fwrite(&BLANK, sizeof(Patient), 1, fp);
+        }
+    }
+    fclose(fp);
+}
+
+void addPatient() {
+    char tempInput[20];
+    int bed;
+
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Bed Number (1-50): ")) continue;
+        bed = atoi(tempInput);
+        if (bed < 1 || bed > MAX_BEDS) {
+            printf("[ERROR] Bed number must be between 1 and 50!\n");
+            continue;
+        }
+        break;
+    }
+
+    FILE* fp = fopen(FILE_NAME, "rb+");
+    if (fp == NULL) { printf("[ERROR] File access failed!\n"); return; }
+
+    fseek(fp, (bed - 1) * sizeof(Patient), SEEK_SET);
+
+    Patient p;
+    fread(&p, sizeof(Patient), 1, fp);
+
+    if (p.bed_no != 0) {
+        printf("[ERROR] Bed %d is already occupied by Patient ID %s!\n", bed, p.id);
+        fclose(fp);
+        return; 
+    }
+
+    Patient new_p = { 0, "", "", "", 0.0, 0.0, 0.0 };
+    new_p.bed_no = bed;
+
+    while (1) {
+        if (!readString(new_p.id, sizeof(new_p.id), "Input ID (10 Alphanumeric chars): ")) continue;
+        if (!isValidID(new_p.id)) { printf("[ERROR] use ur valid identity!\n"); continue; }
+        break;
+    }
+    while (1) {
+        if (!readString(new_p.date, sizeof(new_p.date), "Input Date (YYYY\MM\DD): ")) continue;
+        if (!isValidDate(new_p.date)) { printf("[ERROR] Invalid date / Exceeds today (2026/04/28)!\n"); continue; }
+        break;
+    }
+    while (1) {
+        if (!readString(new_p.time, sizeof(new_p.time), "Input Time (HH:MM): ")) continue;
+        if (!formatTime(new_p.time)) { printf("[ERROR] Invalid time format!\n"); continue; }
+        break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Temp (>0 and <50 C): ")) continue;
+        new_p.temp = atof(tempInput);
+        if (new_p.temp <= 0 || new_p.temp >= 50) { printf("[ERROR] Unrealistic temperature!\n"); continue; }
+        break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Systolic BP (1-350): ")) continue;
+        new_p.systolic = atof(tempInput);
+        if (new_p.systolic <= 0 || new_p.systolic > 350) { printf("[ERROR] Invalid Systolic range!\n"); continue; }
+        break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Diastolic BP: ")) continue;
+        new_p.diastolic = atof(tempInput);
+        if (new_p.diastolic <= 0 || new_p.diastolic > new_p.systolic) {
+            printf("[ERROR] Diastolic must be > 0 and <= Systolic (%f)!\n", new_p.systolic);
+            continue;
+        }
+        break;
+    }
+    fseek(fp, (bed - 1) * sizeof(Patient), SEEK_SET); 
+    fwrite(&new_p, sizeof(Patient), 1, fp);
+    fclose(fp);
+    printf("--> [SUCCESS] Patient added to Bed %d.\n", bed);
+}
+
+void updatePatient() {
+    char tempInput[20];
+    int search_bed;
+
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Bed Number to Update (1-50): ")) continue;
+        search_bed = atoi(tempInput);
+        if (search_bed < 1 || search_bed > MAX_BEDS) { printf("Invalid Bed!\n"); continue; }
+        break;
+    }
+
+    FILE* fp = fopen(FILE_NAME, "rb+");
+    if (fp == NULL) { printf("[ERROR] File access failed!\n"); return; }
+
+    Patient p;
+    fseek(fp, (search_bed - 1) * sizeof(Patient), SEEK_SET);
+    fread(&p, sizeof(Patient), 1, fp);
+
+    if (p.bed_no == 0) {
+        printf("[ERROR] Bed %d is currently EMPTY! Cannot update.\n", search_bed);
+        fclose(fp);
+        return;
+    }
+
+    printf("Patient found at Bed %d (ID: %s). Let's update details.\n", search_bed, p.id);
+
+    int new_bed;
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input New Bed Number (or type current bed to keep it): ")) continue;
+        new_bed = atoi(tempInput);
+        if (new_bed < 1 || new_bed > MAX_BEDS) { printf("[ERROR] Bed number out of range!\n"); continue; }
+        break;
+    }
+
+    if (new_bed != search_bed) {
+        Patient check_p;
+        fseek(fp, (new_bed - 1) * sizeof(Patient), SEEK_SET);
+        fread(&check_p, sizeof(Patient), 1, fp);
+        if (check_p.bed_no != 0) {
+            printf("[ERROR] Target Bed %d is already occupied! Update failed.\n", new_bed);
+            fclose(fp);
+            return;
+        }
+    }
+
+    Patient updated_p = p;
+    updated_p.bed_no = new_bed;
+
+    while (1) {
+        if (!readString(updated_p.date, sizeof(updated_p.date), "Input New Date (YYYY/MM/DD): ")) continue;
+        if (!isValidDate(updated_p.date)) { printf("[ERROR] Invalid date format!\n"); continue; } break;
+    }
+    while (1) {
+        if (!readString(updated_p.time, sizeof(updated_p.time), "Input New Time (HH:MM): ")) continue;
+        if (!formatTime(updated_p.time)) { printf("[ERROR] Invalid time!\n"); continue; } break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input New Temp (>0 and <50 C): ")) continue;
+        if (sscanf(tempInput, "%f", &updated_p.temp) != 1 || updated_p.temp <= 0 || updated_p.temp >= 50) { printf("[ERROR] Invalid temperature!\n"); continue; } break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input New Systolic BP (1-350): ")) continue;
+        if (sscanf(tempInput, "%f", &updated_p.systolic) != 1 || updated_p.systolic <= 0 || updated_p.systolic > 350) { printf("[ERROR] Invalid Systolic!\n"); continue; } break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input New Diastolic BP: ")) continue;
+        if (sscanf(tempInput, "%f", &updated_p.diastolic) != 1 || updated_p.diastolic <= 0 || updated_p.diastolic > updated_p.systolic) { printf("[ERROR] Invalid Diastolic!\n"); continue; } break;
+    }
+
+    if (new_bed != search_bed) {
+        const Patient BLANK_PATIENT = { 0, "", "", "", 0.0, 0.0, 0.0 };
+        fseek(fp, (search_bed - 1) * sizeof(Patient), SEEK_SET);
+        fwrite(&BLANK_PATIENT, sizeof(Patient), 1, fp);
+    }
+
+    fseek(fp, (new_bed - 1) * sizeof(Patient), SEEK_SET);
+    fwrite(&updated_p, sizeof(Patient), 1, fp);
+
+    fclose(fp);
+    printf("--> Patient updated successfully.\n");
+}
+
+void searchByBed() {
+    char tempInput[20];
+    int bed;
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Bed Number to search (1-50): ")) continue;
+        bed = atoi(tempInput);
+        if (bed < 1 || bed > MAX_BEDS) { printf("Invalid Bed!\n"); continue; }
+        break;
+    }
+
+    FILE* fp = fopen(FILE_NAME, "rb");
+    if (fp == NULL) { printf("File access failed!\n"); return; }
+
+    Patient p;
+    fseek(fp, (bed - 1) * sizeof(Patient), SEEK_SET);
+    fread(&p, sizeof(Patient), 1, fp);
+
+    if (p.bed_no == 0) {
+        printf("Bed %d is currently EMPTY.\n", bed);
+    }
+    else {
+        printf("\n--- PATIENT INFO (BED %d) ---\n", p.bed_no);
+        printf("ID : %s\n", p.id);
+        printf("Date/Time : %s %s\n", p.date, p.time);
+        printf("Temp : %.1f °C\n", p.temp);
+        printf("BP : %.1f / %.1f\n", p.systolic, p.diastolic);
+        printf("-----------------------------\n");
+    }
+    fclose(fp);
+}
+
+void displayAll() {
+    FILE* fp = fopen(FILE_NAME, "rb");
+    if (fp == NULL) { printf("[ERROR] File access failed!\n"); return; }
+
+    Patient p;
+    int count = 0;
+
+    printf("\n%-5s %-5s %-10s %-8s %-6s %-12s\n", "BED", "ID", "DATE", "TIME", "TEMP", "SYS/DIA");
+    printf("------------------------------------------------------\n");
+
+    while (fread(&p, sizeof(Patient), 1, fp) == 1) {
+        if (p.bed_no != 0) { 
+            printf("%-5d %-12s %-12s %-8s %.1f°C %.1f/%.1f\n",
+                p.bed_no, p.id, p.date, p.time, p.temp, p.systolic, p.diastolic);
+            count++;
+        }
+    }
+    if (count == 0) printf("(All beds are empty)\n");
+    fclose(fp);
+}
+
+
+int main() {
+    initFileIfNeeded();
+
+    char menuInput[20];
+    while (1) {
+        printf("\n--- HOSPITAL SYSTEM ---\n");
+        printf("1) Add Patient\n2) Update Patient\n(3) Search by Bed\n(4) Show All\n(-1) Exit\nChoose: ");
+        if (!readString(menuInput, sizeof(menuInput), "")) continue;
+
+        int menu = atoi(menuInput);
+
+        if (menu == -1) break;
+        else if (menu == 1) addPatient();
+        else if (menu == 2) updatePatient();
+        else if (menu == 3) searchByBed();
+        else if (menu == 4) displayAll();
+        else printf("[ERROR] Invalid Menu!\n");
+    }
+    printf("Stay healthy!\n");
+    return 0;
+}

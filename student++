@@ -1,0 +1,650 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+typedef struct {
+    char student_id[11];
+    char test_name[52];
+    char test_date[12];
+    int correct_answers;
+    int is_passed;
+    int academic_year;
+} TestRecord;
+
+typedef struct {
+    char student_id[11];
+    long offset;
+} IndexRecord;
+
+typedef struct {
+    char student_id[11];
+    int is_active;
+} StudentRegistry;
+
+void clearBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+int readString(char* buffer, int size, const char* prompt, int allow_spaces) {
+    printf("%s", prompt);
+    if (fgets(buffer, size, stdin) == NULL) return 0;
+
+    if (buffer[0] == '\n') {
+        printf("Input cannot be empty!\n");
+        return 0;
+    }
+    if (strchr(buffer, '\n') == NULL) {
+        printf("Input exceeds maximum length!\n");
+        clearBuffer();
+        return 0;
+    }
+
+    buffer[strcspn(buffer, "\n")] = '\0';
+
+    if (!allow_spaces && strchr(buffer, ' ') != NULL) {
+        printf("Spaces are strictly not allowed for this input!\n");
+        return 0;
+    }
+    return 1;
+}
+
+int isValidID(const char* id) {
+    if (strlen(id) != 9) return 0;
+    for (int i = 0; i < 9; i++) {
+        if (!isdigit((unsigned char)id[i])) return 0;
+    }
+    return 1;
+}
+
+int getValidAcademicYear() {
+    char tempInput[10];
+    int input_year, minguo_year;
+
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Academic Year (Minguo e.g., 114 OR Gregorian e.g., 2025): ", 0)) continue;
+        input_year = atoi(tempInput);
+
+        if (input_year >= 1911 && input_year <= 2026) {
+            minguo_year = input_year - 1911;
+            printf("Gregorian Year %d converted to Minguo Year %d.\n", input_year, minguo_year);
+            return minguo_year;
+        }
+        else if (input_year >= 90 && input_year <= 115) {
+            minguo_year = input_year;
+            printf("Minguo Year %d recognized.\n", minguo_year);
+            return minguo_year;
+        }
+        else {
+            printf("Invalid year! Please enter a valid Minguo (100-200) or Gregorian (1911-2100) year.\n");
+        }
+    }
+}
+int extractYear(const char* id) {
+    char year_str[4];
+    strncpy(year_str, id, 3);
+    year_str[3] = '\0';
+    return atoi(year_str);
+}
+
+int isValidDate(const char* date, int minguo_enrollment_year) {
+    if (strlen(date) != 10) return 0;
+    if (date[4] != '/' || date[7] != '/') return 0;
+
+    for (int i = 0; i < 10; i++) {
+        if (i == 4 || i == 7) continue;
+        if (!isdigit((unsigned char)date[i])) return 0;
+    }
+
+    int y, m, d;
+    sscanf(date, "%d/%d/%d", &y, &m, &d);
+
+    if (m < 1 || m > 12 || d < 1 || d > 31) return 0;
+    if (y > 2026) return 0;
+    if (y == 2026 && m > 4) return 0;
+    if (y == 2026 && m == 4 && d > 30) return 0;
+
+    if (y < (minguo_enrollment_year + 1911)) return 0;
+
+    return 1;
+}
+
+void getFileNames(int year, char* dataFile, char* indexFile, char* txtFile, char* studentFile) {
+    sprintf(dataFile, "data_%d.dat", year);
+    sprintf(indexFile, "index_%d.dat", year);
+    sprintf(txtFile, "%d.txt", year);
+    sprintf(studentFile, "students_%d.dat", year);
+}
+
+int isStudentRegistered(int year, const char* id) {
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* f = fopen(sF, "rb");
+    if (!f) return 0;
+
+    StudentRegistry sr;
+    while (fread(&sr, sizeof(StudentRegistry), 1, f) == 1) {
+        if (strcmp(sr.student_id, id) == 0 && sr.is_active == 1) {
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+void registerStudent(int year, const char* id) {
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* f = fopen(sF, "ab");
+    if (!f) return;
+
+    StudentRegistry sr = { "", 1 };
+    strcpy(sr.student_id, id);
+    fwrite(&sr, sizeof(StudentRegistry), 1, f);
+    fclose(f);
+}
+
+void migrateStudentData(const char* old_id, const char* new_id) {
+    int old_year = extractYear(old_id);
+    int new_year = extractYear(new_id);
+
+    char old_dF[50], old_iF[50], old_tF[50], old_sF[50];
+    char new_dF[50], new_iF[50], new_tF[50], new_sF[50];
+
+    getFileNames(old_year, old_dF, old_iF, old_tF, old_sF);
+    getFileNames(new_year, new_dF, new_iF, new_tF, new_sF);
+
+    FILE* fOldReg = fopen(old_sF, "rb+");
+    if (fOldReg) {
+        StudentRegistry sr;
+        while (fread(&sr, sizeof(StudentRegistry), 1, fOldReg) == 1) {
+            if (strcmp(sr.student_id, old_id) == 0 && sr.is_active == 1) {
+                sr.is_active = 0;
+                fseek(fOldReg, -(long)sizeof(StudentRegistry), SEEK_CUR);
+                fwrite(&sr, sizeof(StudentRegistry), 1, fOldReg);
+                break;
+            }
+        }
+        fclose(fOldReg);
+    }
+
+    registerStudent(new_year, new_id);
+
+    FILE* fOldIdx = fopen(old_iF, "rb+");
+    FILE* fOldData = fopen(old_dF, "rb+");
+
+    if (fOldIdx && fOldData) {
+        FILE* fNewIdx = fopen(new_iF, "ab");
+        FILE* fNewData = fopen(new_dF, "ab");
+
+        IndexRecord idx;
+        TestRecord t;
+
+        while (fread(&idx, sizeof(IndexRecord), 1, fOldIdx) == 1) {
+            if (strcmp(idx.student_id, old_id) == 0 && idx.offset != -1) {
+                fseek(fOldData, idx.offset, SEEK_SET);
+                fread(&t, sizeof(TestRecord), 1, fOldData);
+
+                strcpy(t.student_id, new_id);
+                t.academic_year = new_year;
+
+                fseek(fNewData, 0, SEEK_END);
+                long new_offset = ftell(fNewData);
+                fwrite(&t, sizeof(TestRecord), 1, fNewData);
+
+                IndexRecord new_idx = { "", new_offset };
+                strcpy(new_idx.student_id, new_id);
+                fwrite(&new_idx, sizeof(IndexRecord), 1, fNewIdx);
+
+                idx.offset = -1;
+                fseek(fOldIdx, -(long)sizeof(IndexRecord), SEEK_CUR);
+                fwrite(&idx, sizeof(IndexRecord), 1, fOldIdx);
+            }
+        }
+        if (fNewIdx) fclose(fNewIdx);
+        if (fNewData) fclose(fNewData);
+    }
+
+    if (fOldIdx) fclose(fOldIdx);
+    if (fOldData) fclose(fOldData);
+}
+
+void manageStudentID() {
+    char id[20], new_id[20], choice[10];
+
+    while (1) {
+        if (!readString(id, sizeof(id), "Input Student ID (9 Digits): ", 0)) continue;
+        if (!isValidID(id)) { printf("Invalid ID format!\n"); continue; }
+        break;
+    }
+
+    int year = extractYear(id);
+
+    if (isStudentRegistered(year, id)) {
+        printf(">> [WARNING] Student ID %s is already registered.\n", id);
+        while (1) {
+            if (!readString(choice, sizeof(choice), "Do you want to EDIT/UPDATE this ID? (Y/N): ", 0)) continue;
+            if (toupper(choice[0]) == 'Y' || toupper(choice[0]) == 'N') break;
+        }
+
+        if (toupper(choice[0]) == 'Y') {
+            while (1) {
+                if (!readString(new_id, sizeof(new_id), "Input NEW Student ID: ", 0)) continue;
+                if (!isValidID(new_id)) { printf("Invalid ID format!\n"); continue; }
+                break;
+            }
+            int new_year = extractYear(new_id);
+            if (isStudentRegistered(new_year, new_id)) {
+                printf("The new ID is already taken by another student!\n");
+                return;
+            }
+            migrateStudentData(id, new_id);
+            printf("--> [SUCCESS] Student ID successfully changed from %s to %s.\n", id, new_id);
+        }
+        else {
+            printf("Operation cancelled.\n");
+        }
+    }
+    else {
+        registerStudent(year, id);
+        printf("--> [SUCCESS] Student ID %s successfully registered to Year %d.\n", id, year);
+    }
+}
+
+void addTest() {
+    char id[20], choice[10], tempInput[10];
+
+    while (1) {
+        if (!readString(id, sizeof(id), "Input Student ID: ", 0)) continue;
+        if (!isValidID(id)) { printf("Invalid ID!\n"); continue; }
+        break;
+    }
+
+    int year = extractYear(id);
+
+    if (!isStudentRegistered(year, id)) {
+        printf(">> [WARNING] Student ID %s is NOT registered.\n", id);
+        while (1) {
+            if (!readString(choice, sizeof(choice), "Do you want to add/register this ID? (Y/N): ", 0)) continue;
+            if (toupper(choice[0]) == 'Y' || toupper(choice[0]) == 'N') break;
+        }
+        if (toupper(choice[0]) == 'Y') {
+            registerStudent(year, id);
+            printf("--> [SUCCESS] Student registered.\n");
+        }
+        else {
+            printf("Process cancelled.\n");
+            return;
+        }
+    }
+
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    TestRecord new_test = { "", "", "", 0, 0, year };
+    strcpy(new_test.student_id, id);
+
+    while (1) {
+        if (!readString(new_test.test_name, sizeof(new_test.test_name), "Input Test Name: ", 1)) continue;
+        break;
+    }
+    while (1) {
+        if (!readString(new_test.test_date, sizeof(new_test.test_date), "Input Test Date (YYYY/MM/DD): ", 0)) continue;
+        if (!isValidDate(new_test.test_date, year)) {
+            printf("Invalid format, future date, or test year is BEFORE enrollment year (%d)!\n", year + 1911);
+            continue;
+        }
+        break;
+    }
+    while (1) {
+        if (!readString(tempInput, sizeof(tempInput), "Input Number of Correct Answers: ", 0)) continue;
+        new_test.correct_answers = atoi(tempInput);
+        if (new_test.correct_answers < 0) { printf("Score cannot be negative!\n"); continue; }
+        break;
+    }
+
+    new_test.is_passed = (new_test.correct_answers >= 3) ? 1 : 0;
+
+    FILE* fData = fopen(dF, "ab");
+    FILE* fIdx = fopen(iF, "ab");
+
+    if (!fData || !fIdx) { printf("Failed to open database files!\n"); return; }
+
+    fseek(fData, 0, SEEK_END);
+    long offset_pos = ftell(fData);
+
+    fwrite(&new_test, sizeof(TestRecord), 1, fData);
+
+    IndexRecord idx = { "", offset_pos };
+    strcpy(idx.student_id, new_test.student_id);
+    fwrite(&idx, sizeof(IndexRecord), 1, fIdx);
+
+    fclose(fData);
+    fclose(fIdx);
+    printf("--> [SUCCESS] Test record '%s' added successfully!\n", new_test.test_name);
+}
+
+void searchStudent() {
+    char search_id[20];
+    while (1) {
+        if (!readString(search_id, sizeof(search_id), "Input Student ID to search: ", 0)) continue;
+        if (!isValidID(search_id)) { printf("ID must be exactly 9 digits!\n"); continue; }
+        break;
+    }
+
+    int year = extractYear(search_id);
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* fIdx = fopen(iF, "rb");
+    FILE* fData = fopen(dF, "rb");
+    if (!fIdx || !fData) {
+        printf("[WARNING] No records found for Student %s.\n", search_id);
+        return;
+    }
+
+    IndexRecord idx = { 0 };
+    TestRecord t = { 0 };
+    int found = 0;
+
+    printf("\n--- TEST HISTORY (ID: %s | YEAR: %d) ---\n", search_id, year);
+    while (fread(&idx, sizeof(IndexRecord), 1, fIdx) == 1) {
+        if (strcmp(idx.student_id, search_id) == 0 && idx.offset != -1) {
+            fseek(fData, idx.offset, SEEK_SET);
+            fread(&t, sizeof(TestRecord), 1, fData);
+            printf("[%s] %-20s | Score: %d | %s\n",
+                t.test_date, t.test_name, t.correct_answers, t.is_passed ? "PASSED" : "FAILED");
+            found = 1;
+        }
+    }
+    if (!found) printf("(No test history found for this student)\n");
+
+    if (fIdx) fclose(fIdx);
+    if (fData) fclose(fData);
+}
+
+void processSequential(int mode) {
+    int year = getValidAcademicYear();
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* fIdx = fopen(iF, "rb");
+    FILE* fData = fopen(dF, "rb");
+    FILE* fTxt = NULL;
+
+    if (!fIdx || !fData) {
+        printf(">> No records found for Academic Year %d.\n", year);
+        return;
+    }
+
+    if (mode == 2) {
+        fTxt = fopen(tF, "w");
+        fprintf(fTxt, "========================================================================\n");
+        fprintf(fTxt, "| %-10s | %-20s | %-12s | %-6s | %-8s |\n", "STUDENT ID", "TEST NAME", "DATE", "SCORE", "STATUS");
+        fprintf(fTxt, "========================================================================\n");
+    }
+    else if (mode != 3) {
+        printf("\n%-10s %-25s %-12s %-6s %-8s\n", "ID", "TEST NAME", "DATE", "SCORE", "STATUS");
+        printf("----------------------------------------------------------------------\n");
+    }
+
+    IndexRecord idx = { 0 };
+    TestRecord t = { 0 };
+    int count = 0, passed = 0;
+    int max_score = -1, min_score = 9999, total_score = 0;
+
+    while (fread(&idx, sizeof(IndexRecord), 1, fIdx) == 1) {
+        if (idx.offset != -1) {
+            fseek(fData, idx.offset, SEEK_SET);
+            fread(&t, sizeof(TestRecord), 1, fData);
+
+            int should_print = 0;
+            if (mode == -1 || mode == 2) should_print = 1;
+            else if (mode == 1 && t.is_passed == 1) should_print = 1;
+            else if (mode == 0 && t.is_passed == 0) should_print = 1;
+
+            if (should_print && mode != 3) {
+                if (mode == 2) {
+                    fprintf(fTxt, "| %-10s | %-20s | %-12s | %-6d | %-8s |\n",
+                        t.student_id, t.test_name, t.test_date, t.correct_answers, t.is_passed ? "PASSED" : "FAILED");
+                }
+                else {
+                    printf("%-10s %-25s %-12s %-6d %-8s\n",
+                        t.student_id, t.test_name, t.test_date, t.correct_answers, t.is_passed ? "PASSED" : "FAILED");
+                }
+            }
+
+            if (mode == 3) {
+                count++;
+                if (t.is_passed) passed++;
+                total_score += t.correct_answers;
+                if (t.correct_answers > max_score) max_score = t.correct_answers;
+                if (t.correct_answers < min_score) min_score = t.correct_answers;
+            }
+        }
+    }
+
+    if (mode == 2) {
+        fprintf(fTxt, "========================================================================\n");
+        fclose(fTxt);
+        printf("--> [SUCCESS] Data successfully exported to '%s'!\n", tF);
+    }
+    else if (mode == 3) {
+        printf("\n--- CLASS STATISTICS (YEAR %d) ---\n", year);
+        if (count == 0) printf("No test records available.\n");
+        else {
+            printf("Total Tests Taken   : %d\n", count);
+            printf("Passing Rate        : %.2f%%\n", ((float)passed / count) * 100);
+            printf("Highest Score       : %d\n", max_score);
+            printf("Lowest Score        : %d\n", min_score);
+            printf("Average Score       : %.2f\n", (float)total_score / count);
+        }
+    }
+    else {
+        printf("----------------------------------------------------------------------\n");
+    }
+
+    fclose(fIdx);
+    fclose(fData);
+}
+
+void manageData() {
+    char target_id[20], target_date[15], tempInput[10];
+
+    while (1) {
+        if (!readString(target_id, sizeof(target_id), "Input Student ID to manage: ", 0)) continue;
+        if (!isValidID(target_id)) { printf("Invalid ID format!\n"); continue; }
+        break;
+    }
+
+    int year = extractYear(target_id);
+
+    while(1){
+    if (!readString(target_date, sizeof(target_date), "Input Test Date (YYYY/MM/DD): ", 0)) continue;
+    if (!isValidDate(target_date, year)) { printf("Invalid date format or date logic error!\n"); continue;} 
+    break;
+    }
+
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* fIdx = fopen(iF, "rb+");
+    FILE* fData = fopen(dF, "rb+");
+    if (!fIdx || !fData) {
+        printf("Database files not found!\n");
+        return;
+    }
+
+    IndexRecord idx = { 0 };
+    TestRecord t = { 0 };
+    int found = 0;
+    long current_idx_pos;
+
+    while (1) {
+        current_idx_pos = ftell(fIdx);
+        if (fread(&idx, sizeof(IndexRecord), 1, fIdx) != 1) break;
+
+        if (strcmp(idx.student_id, target_id) == 0 && idx.offset != -1) {
+            fseek(fData, idx.offset, SEEK_SET);
+            fread(&t, sizeof(TestRecord), 1, fData);
+
+            if (strcmp(t.test_date, target_date) == 0) {
+                found = 1;
+                printf("\n--- Record Found ---\n");
+                printf("Test Name: %s\nScore: %d\n", t.test_name, t.correct_answers);
+                int again = 1;
+                while (again) {
+                    printf("Select Action:\n(1) Update Score\n(2) Update Test Name\n(3) Delete Permanently\n(0) Cancel\nChoice: ");
+                    if (!readString(tempInput, sizeof(tempInput), "", 0))continue;
+                    char* endptr;
+                    int menu = (int)strtol(tempInput, &endptr, 10);
+                    if (*endptr != '\0') {
+                        printf("Invalid input! No letters or symbols allowed (e.g., '2,2' is invalid).\n");
+                        continue;
+                    }
+                    switch (menu) {
+                    case 1:
+                        printf("Input New Score: ");
+                        readString(tempInput, sizeof(tempInput), "", 0);
+                        t.correct_answers = atoi(tempInput);
+                        t.is_passed = (t.correct_answers >= 3) ? 1 : 0;
+                        fseek(fData, idx.offset, SEEK_SET);
+                        fwrite(&t, sizeof(TestRecord), 1, fData);
+                        printf("--> [SUCCESS] Score updated successfully.\n");
+                        again = 0;
+                        break;
+                    case 2:
+                        printf("Input New Test Name: ");
+                        readString(t.test_name, sizeof(t.test_name), "", 1);
+                        fseek(fData, idx.offset, SEEK_SET);
+                        fwrite(&t, sizeof(TestRecord), 1, fData);
+                        printf("--> [SUCCESS] Test Name updated successfully.\n");
+                        again = 0;
+                        break;
+                    case 3:
+                        idx.offset = -1;
+                        fseek(fIdx, current_idx_pos, SEEK_SET);
+                        fwrite(&idx, sizeof(IndexRecord), 1, fIdx);
+                        printf("--> [SUCCESS] Data deleted successfully (Logical Delete).\n");
+                        again = 0;
+                        break;
+                    case 0: printf("Cancel"); again = 0; break;
+                    default:
+                        printf("Invalid Menu Selection!\n");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (!found) printf("Test record not found.\n");
+
+    if (fIdx) fclose(fIdx);
+    if (fData) fclose(fData);
+}
+
+void showStudentsWithNoTests() {
+    int year = getValidAcademicYear();
+
+    char dF[50], iF[50], tF[50], sF[50];
+    getFileNames(year, dF, iF, tF, sF);
+
+    FILE* fStud = fopen(sF, "rb");
+    if (!fStud) {
+        printf(">> No students are registered for Academic Year %d.\n", year);
+        return;
+    }
+
+    FILE* fIdx = fopen(iF, "rb");
+    StudentRegistry sr;
+    int count = 0;
+
+    printf("\n--- STUDENTS WITH NO TEST HISTORY (YEAR %d) ---\n", year);
+    printf("----------------------------------------------------------------------\n");
+
+    while (fread(&sr, sizeof(StudentRegistry), 1, fStud) == 1) {
+        if (sr.is_active) {
+            int has_test = 0;
+            if (fIdx) {
+                fseek(fIdx, 0, SEEK_SET);
+                IndexRecord idx;
+                while (fread(&idx, sizeof(IndexRecord), 1, fIdx) == 1) {
+                    if (strcmp(idx.student_id, sr.student_id) == 0 && idx.offset != -1) {
+                        has_test = 1; 
+                        break;
+                    }
+                }
+            }
+
+            if (!has_test) {
+                printf("- %s\n", sr.student_id);
+                count++;
+            }
+        }
+    }
+
+    if (count == 0) {
+        printf("(All registered students in this year have taken at least one test)\n");
+    }
+    printf("----------------------------------------------------------------------\n");
+
+    fclose(fStud);
+    if (fIdx) fclose(fIdx);
+}
+ 
+int main() {
+    char tempInput[10];
+
+    printf("=== STUDENT TEST MANAGEMENT SYSTEM ===\n");
+    printf("Ready to process data automatically.\n");
+
+    while (1) {
+        printf("\n=========================================\n");
+        printf("1) Add Test Result\n");
+        printf("2) Personal History (Search by ID)\n");
+        printf("3) Show All History Test (By Year)\n");     
+        printf("4) Show Passed Students (By Year)\n");
+        printf("5) Show Failed Students (By Year)\n");
+        printf("6) Export TXT (By Year)\n");
+        printf("7) Analytics & Statistics (By Year)\n");
+        printf("8) Test Data Management (Update / Delete)\n");
+        printf("9) Register / Edit Student ID\n");
+        printf("10) Show Students with No Test History\n");    
+        printf("-1) Exit System\n");
+        printf("Select Menu: ");
+
+        if (!readString(tempInput, sizeof(tempInput), "", 0)) continue;
+        char* endptr; 
+        int menu = (int)strtol(tempInput, &endptr, 10); 
+
+        if (*endptr != '\0') {
+            printf("Invalid input! No letters or symbols allowed (e.g., '2,2' is invalid).\n");
+            continue;
+        }
+
+        switch (menu) {
+        case 1: addTest(); break;
+        case 2: searchStudent(); break;
+        case 3: processSequential(-1); break;
+        case 4: processSequential(1); break;
+        case 5: processSequential(0); break;
+        case 6: processSequential(2); break;
+        case 7: processSequential(3); break;
+        case 8: manageData(); break;
+        case 9: manageStudentID(); break;
+        case 10: showStudentsWithNoTests(); break;   
+        case -1:
+            printf("System terminated. All data is safely stored in the vault.\n");
+            return 0;
+        default:
+            printf("Invalid Menu Selection!\n");
+            break;
+        }
+    }
+
+    return 0;
+}

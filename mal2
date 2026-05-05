@@ -1,0 +1,116 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+
+int get_valid_input(const char* prompt) {
+    char buffer[100];
+    long n = 0;
+    char* endptr;
+
+    while (1) {
+        printf("%s", prompt);
+        if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+            n = strtol(buffer, &endptr, 10);
+            if (endptr == buffer || (*endptr != '\n' && *endptr != '\0')) {
+                printf("Error: Invalid input. Please enter numbers only.\n");
+            }
+            else if (n <= 0) {
+                printf("Error: Please enter a positive integer.\n");
+            }
+            else {
+                break;
+            }
+        }
+    }
+    return n;
+}
+
+
+void sort(int* arr, int n) {
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+
+void print_array(int* arr, int n) {
+    for (int i = 0; i < n; i++) {
+        printf("%d ", arr[i]);
+    }
+    printf("\n");
+}
+
+void run_experiments(int m, int* all_n, double* all_averages, double* all_medians) {
+    for (int i = 0; i < m; i++) {
+        printf("\n--- Experiment %d ---\n", i + 1);
+        int n = get_valid_input("How many random integers to generate? (n): ");
+        all_n[i] = n; 
+
+ 
+        int* numbers = (int*)malloc(n * sizeof(int));
+        if (numbers == NULL) {
+            printf(" Memory allocation failed for numbers!\n");
+            return; 
+        }
+
+        double sum = 0;
+        for (int j = 0; j < n; j++) {
+            numbers[j] = rand() % 101;
+            sum += numbers[j];
+        }
+        sort(numbers, n);
+
+        printf("\nRandom Numbers (Sorted):\n");
+        print_array(numbers, n); 
+
+        all_averages[i] = sum /(double) n;
+
+        if (n % 2 == 0) {
+            all_medians[i] = (numbers[n / 2 - 1] + numbers[n / 2]) / 2.0;
+        }
+        else {
+            all_medians[i] = numbers[n / 2];
+        }
+        free(numbers);
+    }
+}
+
+void print_result(int m, int* all_n, double* all_averages, double* all_medians) {
+    printf("\nResult\n");
+    for (int i = 0; i < m; i++) {
+        printf("Experiment %d (%d numbers) -> Average: %.2f | Median: %g\n",
+            i + 1, all_n[i], all_averages[i], all_medians[i]);
+    }
+}
+
+int main() {
+    srand((unsigned int)time(NULL));
+
+    int m = get_valid_input("How many experiments do you want to run? (m): ");
+
+    int* all_n = (int*)malloc(m * sizeof(int));
+    double* all_averages = (double*)malloc(m * sizeof(double));
+    double* all_medians = (double*)malloc(m * sizeof(double));
+
+    if (all_n == NULL || all_averages == NULL || all_medians == NULL) {
+        printf("Fatal Error: Memory allocation failed for summary logs!\n");
+        return 1;
+    }
+
+    run_experiments(m, all_n, all_averages, all_medians);
+    print_result(m, all_n, all_averages, all_medians);
+
+
+    free(all_n);
+    free(all_averages);
+    free(all_medians);
+
+    return 0;
+}

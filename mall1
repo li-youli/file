@@ -1,0 +1,105 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include<ctype.h>
+#include<string.h>
+
+void clearBuffer() {
+	int c;
+	while ((c = getchar()) != '\n' && c != EOF);
+}
+
+int readString(char* buffer, int size, const char* prompt) {
+	long n = 0;
+	char* endptr;
+	printf("%s", prompt);
+	if (fgets(buffer, size, stdin) == NULL) return 0;
+
+	if (buffer[0] == '\n') {
+		printf("Input cannot be empty!\n");
+		return 0;
+	}
+	if (strchr(buffer, '\n') == NULL) {
+		printf("Input too long!\n");
+		clearBuffer();
+		return 0;
+	}
+	if (strchr(buffer, ' ') != NULL) {
+		printf("No spaces allowed!\n");
+		return 0;
+	}
+	n = strtol(buffer, &endptr, 10); 
+	if (endptr == buffer) {
+		printf("Error: No digits were found. Please enter a number.\n"); return 0;
+	}
+	else if (*endptr != '\n' && *endptr != '\0') {
+		printf("Error: Invalid characters detected. Please enter numbers only.\n"); return 0;
+	}
+	else if (n>=3000) {
+		printf("Error: The number is too large for the system to handle.\n"); return 0;
+	}
+	else if (n <= 0) {
+		printf("Error: Please enter a positive integer greater than 0.\n"); return 0;
+	}
+	return 1;
+}
+void generate(char* letter, int n) {
+	char whitelist[] = { "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,." };
+
+	for (int i = 0; i < n; i++) {
+		int index = rand() % strlen(whitelist);
+		letter[i] = whitelist[index];
+	}
+	letter[n] = '\0';
+	printf("The randomized %d letter is %s\n", n, letter);
+}
+void calcDisplay(char* letter, int n) {
+	int upper[26] = { 0 };
+	int lower[26] = { 0 };
+	int dot = 0; int space = 0; int coma =0 ;
+	for (int i = 0; i < n; i++) {
+		if (isupper(letter[i])) { upper[letter[i] - 'A']++; }
+		else if (islower(letter[i])) { lower[letter[i] - 'a']++; }
+		else if (letter[i] == ' ') { space++; }
+		else if (letter[i] == '.') { dot++; }
+		else if (letter[i] == ',') { coma++; }
+	}
+	printf("Total occurence\n");
+	printf("The space occurs %d times\n", space);
+	printf("The %c occurs %d times\n", '.', dot);
+	printf("The %c occurs %d times\n", ',', coma);
+	for (int i = 0; i < 26; i++) {
+		printf("The %c occurs %d times\n", 'A' + i, upper[i]);
+	}
+	for (int i = 0; i < 26; i++) {
+		printf("The %c occurs %d times\n", 'a' + i, lower[i]);
+	}
+}
+void clean(char* letter, int n) {
+	for (int i = 0; i < n; i++) {
+		letter[i] = { '\0' };
+	}
+}
+int main() {
+	srand((unsigned int)time(NULL));
+	char user_input[10] = {'\0'};
+	
+	while (1){
+		if (!readString(user_input, sizeof(user_input), "Input n as many as you like: \n")) continue;
+		break;
+	}
+	int n = atoi(user_input);
+	char* letter = (char*)malloc(sizeof(char) * (n + 1));
+	if (letter == NULL) {
+		printf("some error happened sorry!\n");
+		return 0;
+	}
+	else {
+		clean(letter, n);
+	}
+	generate(letter, n);
+	calcDisplay(letter, n);
+	free(letter);
+	return 0;
+}
